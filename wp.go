@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"encoding/json"
 	"github.com/json-iterator/go"
+	"strings"
 )
 /*
 http://demo.wp-api.org/wp-json/wp/v2/users
@@ -33,6 +34,18 @@ type wp_category struct{
 	Slug		string		`json:"slug"`
 	Parent		int			`json:"parent"`
 	Meta		interface{}	`json:"meta"`
+}
+
+type list_wp_users struct{
+	Id			int			`json:"id"`
+	Name		string		`json:"name"`
+	Url			string		`json:"url"`
+	Description	string		`json:"description"`
+	Link		string		`json:"link"`
+	Slug		string		`json:"slug"`
+	Avatar_urls	interface{}	`json:"avatar_urls"`
+	Meta		interface{}	`json:"meta"`
+	_links		interface{}	`json:"-"`
 }
 
 type list_wp_categories struct {
@@ -73,12 +86,13 @@ type WP_JSON struct{
 	uri	string
 	categories []list_wp_categories
 	tags []list_wp_tags
+	users []list_wp_users
 }
 
 ///private
 func (wj *WP_JSON)getCategoryIdBySlug(slug string) int{
 	for _ , b:= range wj.categories{
-		if b.Slug == slug{
+		if b.Slug == strings.ToLower(slug){
 			return b.Id
 		}
 	}
@@ -86,10 +100,18 @@ func (wj *WP_JSON)getCategoryIdBySlug(slug string) int{
 }
 
 
-
 func (wj *WP_JSON)getTagIdBySlug(slug string) int{
 	for _ , b:= range wj.tags{
-		if b.Slug == slug{
+		if b.Slug == strings.ToLower(slug){
+			return b.Id
+		}
+	}
+	return -1
+}
+
+func (wj *WP_JSON)getUserIdBySlug(slug string) int{
+	for _ , b:= range wj.users{
+		if b.Slug == strings.ToLower(slug){
 			return b.Id
 		}
 	}
@@ -110,6 +132,31 @@ func (wj *WP_JSON)IsCategoryExist(slug string) bool{
 
 func (wj *WP_JSON)IsTagExist(slug string) bool{
 	return wj.getTagIdBySlug(slug) != -1
+}
+
+func (wj *WP_JSON)IsUserExist(slug string) bool{
+	return wj.getUserIdBySlug(slug) != -1
+}
+
+func (wj *WP_JSON)LoadUsers(){
+	var r []list_wp_users
+	for i:=1 ; ; i++{
+		uri := fmt.Sprintf("%s/wp-json/wp/v2/users?page=%d", wj.uri  , i)
+		k := wj.web.Get(uri , "")
+		if len(k) > 2{
+			var b []list_wp_users
+			err := json.Unmarshal([]byte(k), &b)
+			if err != nil {
+				fmt.Printf(err.Error())
+				return
+			}
+			fmt.Println(b)
+			r = append(r , b...)
+		}else{
+			break
+		}
+	}
+	wj.users = r
 }
 
 func (wj *WP_JSON)LoadCategories(){
@@ -158,7 +205,7 @@ func (wj *WP_JSON)CreateTag(name string , slug string , description string) (bSu
 	data := wp_tag{
 		Description:description,
 		Name:name,
-		Slug:slug,
+		Slug:strings.ToLower(slug),
 	}
 	uri := wj.uri + "/wp-json/wp/v2/tags"
 	r := wj.web.Post(uri ,data , "" , request.JSON)
@@ -172,7 +219,7 @@ func (wj *WP_JSON)CreateCategory(name string , slug string , description string 
 	data := wp_category{
 		Description:description,
 		Name:name,
-		Slug:slug,
+		Slug:strings.ToLower(slug),
 	}
 
 	if len(parent) > 0 {
@@ -191,7 +238,13 @@ func (wj *WP_JSON)CreateCategory(name string , slug string , description string 
 }
 
 
-func (wj *WP_JSON)WritePost(title string ,content string , status int , sCategories []string , sTags []string) (bSuccess bool,error_msg string){
+func (wj *WP_JSON)WritePost(author string, title string ,content string , status int , sCategories []string , sTags []string) (bSuccess bool,error_msg string){
+	//获取用户ID
+	nAuthor := wj.getUserIdBySlug(author)
+	if nAuthor == -1 {
+		return false , "can not find the user!"
+	}
+
 	nCategories := make([]int , len(sCategories))
 	for i,c := range sCategories{
 		nCategories[i] = wj.getCategoryIdBySlug(c)
@@ -211,7 +264,7 @@ func (wj *WP_JSON)WritePost(title string ,content string , status int , sCategor
 	data := wp_post{
 		Title:title,
 		Content:content,
-		Author:1,
+		Author:nAuthor,
 		Categories:nCategories,
 		Tags:nTags,
 	}
